@@ -1,9 +1,8 @@
 package main
 
 import (
-	"encoding/csv"
+	"crawler/utils"
 	"fmt"
-	"os"
 
 	"github.com/gocolly/colly"
 )
@@ -17,34 +16,11 @@ type Product struct {
 	ImageURL string
 }
 
-var products []Product
+var products []utils.Product // instead of []Product
 
 func main() {
 	seedUrl := "https://www.scrapingcourse.com/ecommerce/"
-	crawl(seedUrl, 0)
-}
-
-// function to export scraped data to CSV
-func exportToCSV(filename string) {
-	// open a CSV file
-	file, err := os.Create(filename)
-	if err != nil {
-		fmt.Println("Error creating CSV file:", err)
-		return
-	}
-	defer file.Close()
-	// initialize a writer class
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// write the header row
-	writer.Write([]string{"Name", "Price", "Image URL"})
-
-	// write the product details
-	for _, product := range products {
-		writer.Write([]string{product.Name, product.Price, product.ImageURL})
-	}
-	fmt.Println("Product details exported to", filename)
+	crawl(seedUrl, 1)
 }
 
 func crawl(currentUrl string, maxDepth int) {
@@ -68,7 +44,7 @@ func crawl(currentUrl string, maxDepth int) {
 		price := e.ChildText(".product-price")
 		imageURL := e.ChildAttr(".product-image", "src")
 
-		products = append(products, Product{
+		products = append(products, utils.Product{
 			Name:     name,
 			Price:    price,
 			ImageURL: imageURL,
@@ -98,7 +74,7 @@ func crawl(currentUrl string, maxDepth int) {
 	c.OnScraped(func(r *colly.Response) {
 		fmt.Println("Data extraction complete", r.Request.URL)
 		// export the collected products to a CSV file after scraping.
-		exportToCSV("products.csv")
+		utils.ExportToCSV("products.csv", products)
 	})
 
 	// handle request errors
