@@ -5,6 +5,7 @@ go 1.24.5
 require (
 	github.com/PuerkitoBio/goquery v1.10.3
 	github.com/gocolly/colly v1.2.0
+	github.com/joho/godotenv v1.5.1
 	github.com/temoto/robotstxt v1.1.2
 	go.mongodb.org/mongo-driver v1.17.4
 )
@@ -17,7 +18,7 @@ require (
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/golang/snappy v0.0.4 // indirect
+	github.com/golang/snappy v1.0.0 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect

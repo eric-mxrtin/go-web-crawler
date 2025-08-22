@@ -15,9 +15,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/joho/godotenv"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/temoto/robotstxt"
@@ -25,6 +28,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 // ========================= Constants & Config =========================
@@ -32,8 +36,6 @@ import (
 const (
 	startURL            = "https://modernfamily.fandom.com/wiki/Pilot"
 	userAgent           = "ModernFamilyCrawler/1.0 (+https://example.com/bot)" // customize if you want
-	linkSelector        = "table.wikitable a"                                  // dummy selector for episode links
-	summarySelector     = "div.mw-parser-output > p"                           // dummy selector for summary content
 	defaultWorkers      = 6
 	defaultHTTPTimeout  = 20 * time.Second
 	maxRetries          = 3
@@ -41,6 +43,23 @@ const (
 	openAIEmbeddingsURL = "https://api.openai.com/v1/embeddings"
 	openAIModel         = "text-embedding-3-small" // small, cheap; alter if you prefer
 )
+
+func loadEnv() {
+	// Load .env file if it exists
+	if _, err := os.Stat(".env"); err == nil {
+		if err := godotenv.Load(); err != nil {
+			log.Fatal("Error loading .env file")
+		}
+	}
+
+	// Verify required variables
+	required := []string{"MONGO_URI", "OPENAI_API_KEY"}
+	for _, key := range required {
+		if os.Getenv(key) == "" {
+			log.Printf("WARNING: Environment variable %s not set", key)
+		}
+	}
+}
 
 // ========================= Data Models =========================
 
@@ -176,20 +195,33 @@ func getEmbedding(ctx context.Context, apiKey, text string) ([]float64, error) {
 	if apiKey == "" {
 		return nil, errors.New("OPENAI_API_KEY is not set")
 	}
-	// Safety: trim text and clamp length a bit to avoid huge payloads.
+
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil, errors.New("empty text for embedding")
 	}
+
+	// OpenAI embedding models have a max token limit.
+	// The "text-embedding-3-small" model has a max input length of 8191 tokens.
+	// Truncate the text to prevent oversized requests.
+	// A simple character limit is used here as a proxy for token count.
+
+	// Create the request payload
 	reqBody := openAIEmbeddingRequest{
 		Model: openAIModel,
 		Input: []string{text},
 	}
-	data, _ := json.Marshal(reqBody)
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", openAIEmbeddingsURL, bytes.NewReader(data))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
@@ -199,19 +231,24 @@ func getEmbedding(ctx context.Context, apiKey, text string) ([]float64, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 
+	// Read the body to get the error message
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		// Read the body to get the error message
+		log.Printf("OpenAI API returned status code %d: %s", resp.StatusCode, string(body))
 		return nil, fmt.Errorf("embedding API error: %s - %s", resp.Status, string(body))
 	}
 
 	var parsed openAIEmbeddingResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("failed to parse embedding response: %w", err)
 	}
-	if len(parsed.Data) == 0 {
-		return nil, errors.New("no embedding returned")
+
+	if len(parsed.Data) == 0 || len(parsed.Data[0].Embedding) == 0 {
+		return nil, errors.New("empty embedding vector returned")
 	}
+
 	return parsed.Data[0].Embedding, nil
 }
 
@@ -230,28 +267,28 @@ func initMongo(ctx context.Context) (*mongoEnv, error) {
 	if mongoURI == "" {
 		return nil, errors.New("MONGO_URI is not set")
 	}
-	dbName := os.Getenv("MONGO_DB")
-	if dbName == "" {
-		dbName = "modern_family"
-	}
-	idx := os.Getenv("MONGO_VECTOR_INDEX")
-	if idx == "" {
-		idx = "embedding_index"
-	}
 
+	// Create a new client and connect to the server
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		return nil, err
 	}
-	if err := client.Ping(ctx, nil); err != nil {
+
+	// Ping the primary
+	if err := client.Ping(ctx, readpref.Primary()); err != nil {
 		return nil, err
 	}
-	db := client.Database(dbName)
+
+	dbName := os.Getenv("MONGO_DB")
+	if dbName == "" {
+		dbName = "modern_family"
+	}
+
 	return &mongoEnv{
 		Client:       client,
-		DB:           db,
-		Collection:   db.Collection("episodes"),
-		VectorIndex:  idx,
+		DB:           client.Database(dbName),
+		Collection:   client.Database(dbName).Collection("episodes"),
+		VectorIndex:  "embedding_index", // or os.Getenv("MONGO_VECTOR_INDEX")
 		OpenAIAPIKey: os.Getenv("OPENAI_API_KEY"),
 	}, nil
 }
@@ -260,7 +297,6 @@ func saveEpisode(ctx context.Context, env *mongoEnv, doc *EpisodeDoc) error {
 	if doc.URL == "" {
 		return errors.New("missing URL")
 	}
-	// Upsert by URL so re-runs don't duplicate
 	_, err := env.Collection.UpdateOne(
 		ctx,
 		bson.M{"url": doc.URL},
@@ -272,7 +308,7 @@ func saveEpisode(ctx context.Context, env *mongoEnv, doc *EpisodeDoc) error {
 				"embedding":       doc.Embedding,
 			},
 		},
-		options.Update().SetUpsert(true),
+		options.Update().SetUpsert(true), // Fixed options package
 	)
 	return err
 }
@@ -336,6 +372,7 @@ func performSearch(ctx context.Context, env *mongoEnv, query string) error {
 }
 
 // worker consumes episode URLs, fetches & parses the page, embeds content, and stores it.
+// worker consumes episode URLs, fetches & parses the page, embeds content, and stores it.
 func worker(ctx context.Context, id int, env *mongoEnv, robots *robotstxt.RobotsData, jobs <-chan string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for u := range jobs {
@@ -344,14 +381,38 @@ func worker(ctx context.Context, id int, env *mongoEnv, robots *robotstxt.Robots
 			continue
 		}
 
-		// Use your custom function here:
 		title, summary, err := scraper.ExtractEpisodeData(ctx, u)
 		if err != nil {
 			log.Printf("[worker %d] extract error for %s: %v", id, u, err)
 			continue
 		}
 
-		// Rest of the logic (embeddings, MongoDB save, etc.) is unchanged:
+		// Use a more robust text cleaning method.
+		// First, check for valid UTF-8 and clean.
+		summary = strings.ToValidUTF8(summary, "")
+
+		// Remove control characters (except newline, tab, etc., which are often fine).
+		// This regex pattern matches and removes non-printable ASCII characters.
+		re := regexp.MustCompile("[\x00-\x1F\x7F]")
+		summary = re.ReplaceAllString(summary, "")
+
+		summary = strings.TrimSpace(summary)
+
+		if summary == "" {
+			log.Printf("[worker %d] skipping empty summary after cleaning for %s", id, u)
+			continue
+		}
+
+		// Add this check to prevent oversized requests
+		const maxCharLimit = 8000 // A bit less than 8191 to be safe
+		if len(summary) > maxCharLimit {
+			summary = summary[:maxCharLimit]
+			log.Printf("[worker %d] truncated summary for %s to %d characters", id, u, maxCharLimit)
+		}
+
+		// Add log for debugging the payload content
+		log.Printf("[worker %d] embedding request: len=%d, preview=%q", id, len(summary), summary[:min(50, len(summary))])
+
 		vec, err := getEmbedding(ctx, env.OpenAIAPIKey, summary)
 		if err != nil {
 			log.Printf("[worker %d] embedding error for %s: %v", id, u, err)
@@ -406,19 +467,17 @@ func uniqueStrings(in []string) []string {
 
 // ========================= Main (Crawl / Search CLI) =========================
 func main() {
-
-	// CLI flags (keep declared for future use, but add _ to avoid unused variable errors)
+	loadEnv()
 	workers := flag.Int("workers", defaultWorkers, "number of concurrent workers")
 	search := flag.String("search", "", "semantic search query (when set, crawlers won't run)")
 	flag.Parse()
 
-	// Prevent unused variable errors in test version
 	_ = workers
 	_ = search
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-	/* MongoDB setup (commented out for testing)
+
 	env, err := initMongo(ctx)
 	if err != nil {
 		log.Fatalf("mongo init error: %v", err)
@@ -427,7 +486,6 @@ func main() {
 		_ = env.Client.Disconnect(context.Background())
 	}()
 
-	// If --search is provided, run semantic search and exit.
 	if strings.TrimSpace(*search) != "" {
 		if err := performSearch(ctx, env, *search); err != nil {
 			log.Fatalf("search error: %v", err)
@@ -438,9 +496,7 @@ func main() {
 	if env.OpenAIAPIKey == "" {
 		log.Fatal("OPENAI_API_KEY is not set")
 	}
-	*/
 
-	// Robots: Respect fandom.com policy (keep this active)
 	robotsTargets := []string{
 		"https://fandom.com/robots.txt",
 		"https://www.fandom.com/robots.txt",
@@ -461,12 +517,10 @@ func main() {
 		log.Fatal("failed to retrieve robots.txt; aborting to be safe")
 	}
 
-	// Verify startURL allowed
 	if !isAllowed(robots, startURL) {
 		log.Fatalf("robots.txt disallows fetching: %s", startURL)
 	}
 
-	// Get episode links from the list page
 	episodeLinks, err := scraper.ExtractEpisodeLinks(ctx, startURL)
 	if err != nil {
 		log.Fatalf("failed to parse episode links: %v", err)
@@ -475,97 +529,31 @@ func main() {
 		log.Fatal("no episode links found; check selector or page structure")
 	}
 
-	// TEST MODIFICATION: Only process first 20 episodes
-	maxEpisodes := 20
-	if len(episodeLinks) > maxEpisodes {
-		episodeLinks = episodeLinks[:maxEpisodes]
-	}
-	log.Printf("Testing with first %d episode links", len(episodeLinks))
-
-	// Temporary storage for episode data
-	type SimpleEpisode struct {
-		URL     string
-		Title   string
-		Content string
-	}
-	var episodes []SimpleEpisode
-	var mu sync.Mutex
-
-	/* Original worker pool setup (commented out)
+	// Allocate a buffered channel to prevent the main goroutine from blocking
 	jobs := make(chan string, len(episodeLinks))
 	var wg sync.WaitGroup
+
 	workerCount := *workers
 	if workerCount < 1 {
 		workerCount = 1
 	}
 	log.Printf("Starting %d workers…", workerCount)
+
+	// This block correctly starts the workers
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
 		go worker(ctx, i+1, env, robots, jobs, &wg)
 	}
-	*/
 
-	// Simplified parallel fetching without workers
-	var wg sync.WaitGroup
-	for i, url := range episodeLinks {
-		wg.Add(1)
-		go func(id int, u string) {
-			defer wg.Done()
-
-			if !isAllowed(robots, u) {
-				log.Printf("[%d] blocked by robots.txt: %s", id, u)
-				return
-			}
-
-			title, content, err := scraper.ExtractEpisodeData(ctx, u)
-			if err != nil {
-				log.Printf("[%d] error fetching %s: %v", id, u, err)
-				return
-			}
-
-			mu.Lock()
-			episodes = append(episodes, SimpleEpisode{
-				URL:     u,
-				Title:   title,
-				Content: content,
-			})
-			mu.Unlock()
-
-			log.Printf("[%d/%d] Fetched: %s", id+1, len(episodeLinks), title)
-		}(i, url)
-	}
-
-	wg.Wait()
-
-	// Save to markdown file instead of MongoDB
-	outputFile := "episodes.md"
-	file, err := os.Create(outputFile)
-	if err != nil {
-		log.Fatalf("failed to create output file: %v", err)
-	}
-	defer file.Close()
-
-	// Write markdown content
-	file.WriteString("# Modern Family Episode Summaries\n\n")
-	for _, ep := range episodes {
-		file.WriteString(fmt.Sprintf("## [%s](%s)\n\n", ep.Title, ep.URL))
-		file.WriteString(ep.Content)
-		file.WriteString("\n\n---\n\n")
-	}
-
-	log.Printf("Successfully saved %d episodes to %s", len(episodes), outputFile)
-
-	/* Original worker pool completion (commented out)
-	// Enqueue jobs
+	// This block correctly sends the jobs to the channel
 	for _, link := range episodeLinks {
 		jobs <- link
 	}
-	close(jobs)
+	close(jobs) // Crucial to close the channel after all jobs are sent
 
-	// Wait for workers to finish
+	// This correctly waits for the workers to finish after the channel is closed
 	wg.Wait()
 	log.Println("Crawl completed.")
-	*/
 }
 
 /*

@@ -43,7 +43,7 @@ func ExtractEpisodeLinks(ctx context.Context, seedURL string) ([]string, error) 
 	}
 
 	doc.Find(tableSelector).EachWithBreak(func(i int, table *goquery.Selection) bool {
-		if tableCount >= 12 {
+		if tableCount >= 3 {
 			return false // Stop after 12 tables
 		}
 		tableCount++

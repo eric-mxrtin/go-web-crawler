@@ -44,7 +44,6 @@ func ExtractEpisodeData(ctx context.Context, url string) (string, string, error)
 
 	// Join paragraphs into single summary text
 	summary := strings.Join(paragraphs, "\n\n")
-
 	return title, summary, nil
 }
 
