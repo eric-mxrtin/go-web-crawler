@@ -10,6 +10,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+// extract episode links from the modern family wiki page using bfs-like traversal
 func ExtractEpisodeLinks(ctx context.Context, seedURL string) ([]string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", seedURL, nil)
 	if err != nil {
@@ -36,21 +37,22 @@ func ExtractEpisodeLinks(ctx context.Context, seedURL string) ([]string, error) 
 	tableSelector := "table.toccolors.collapsible.collapsed, table.toccolours.collapsible.collapsed"
 	tableCount := 0
 
-	// Parse base URL for proper absolute URL construction
+	// parse base url for absolute url construction
 	baseURL, err := url.Parse(seedURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid seed URL: %w", err)
+		return nil, fmt.Errorf("invalid seed url: %w", err)
 	}
 
+	const maxTables = 6 // full is 12
 	doc.Find(tableSelector).EachWithBreak(func(i int, table *goquery.Selection) bool {
-		if tableCount >= 3 {
-			return false // Stop after some number of tables, full is 12
+		if tableCount >= maxTables {
+			return false
 		}
 		tableCount++
 
 		tbody := table.Find("tbody")
 		if tbody.Length() == 0 {
-			return true // Continue to next table
+			return true // continue to next table
 		}
 
 		tr := tbody.Find("tr").Eq(1)
@@ -73,18 +75,17 @@ func ExtractEpisodeLinks(ctx context.Context, seedURL string) ([]string, error) 
 				return
 			}
 
-			// Properly resolve the URL
+			// resolve relative urls to absolute
 			hrefURL, err := url.Parse(href)
 			if err != nil {
 				return
 			}
 
-			// Create absolute URL using the base URL
 			absURL := baseURL.ResolveReference(hrefURL).String()
 			links = append(links, absURL)
 		})
 
-		return true // Continue processing
+		return true // continue processing
 	})
 
 	return links, nil

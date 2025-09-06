@@ -9,8 +9,7 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// ExtractEpisodeData fetches a page and extracts the episode title and summary
-// Returns: (title string, summary string, error)
+// extract episode title and plot summary from wiki page
 func ExtractEpisodeData(ctx context.Context, url string) (string, string, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
