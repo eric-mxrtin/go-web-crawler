@@ -142,12 +142,6 @@ go run main.go -search "phil's real estate"
 - User-agent spoofing
 - Rate limiting and retry logic
 
-### Data Processing
-- Text cleaning and normalization
-- UTF-8 validation
-- Control character removal
-- Content truncation for API limits
-
 ### Vector Search
 - OpenAI embedding generation
 - L2 vector normalization
@@ -176,7 +170,7 @@ go run main.go -search "phil's real estate"
 
 ## 🚀 Next Steps: AWS & System Design
 
-Based on the system architecture diagram, here are the planned improvements to scale this crawler:
+Based on the system architecture diagram, here are my planned improvements to scale this crawler:
 
 ### 🏗️ AWS Infrastructure Migration
 
@@ -185,16 +179,6 @@ Based on the system architecture diagram, here are the planned improvements to s
 - **Dead Letter Queue (DLQ)**: Implement retry logic with exponential backoff for failed messages
 - **Message Visibility**: Handle long-running tasks with proper visibility timeouts
 
-**Storage Layer:**
-- **S3 HTML Data**: Store raw HTML content in S3 for scalable storage
-- **S3 Parsed Text**: Save processed text content separately for faster access
-- **S3 Lifecycle Policies**: Implement data retention and archival strategies
-
-**Metadata Management:**
-- **URL Metadata Table**: Track URL status, S3 links, and last crawl times
-- **Domain Metadata**: Store domain-specific information including robots.txt rules
-- **DynamoDB Integration**: Use DynamoDB for fast metadata lookups
-
 ### 🔄 Enhanced Crawling Architecture
 
 **Separation of Concerns:**
@@ -202,17 +186,7 @@ Based on the system architecture diagram, here are the planned improvements to s
 - **Parsing Worker**: Separate service for HTML processing and content extraction
 - **Rate Limiter**: Centralized rate limiting service with domain-specific rules
 
-**DNS & Network:**
-- **DNS Resolution**: Implement proper DNS caching and resolution
-- **Load Balancing**: Distribute crawling load across multiple instances
-- **CDN Integration**: Use CloudFront for static content delivery
-
 ### 📊 Monitoring & Observability
-
-**AWS Services:**
-- **CloudWatch**: Comprehensive logging and metrics
-- **X-Ray**: Distributed tracing for request flows
-- **SNS/SQS**: Alerting and notification systems
 
 **Performance Metrics:**
 - Crawl success rates and error tracking
@@ -220,28 +194,4 @@ Based on the system architecture diagram, here are the planned improvements to s
 - Storage utilization and costs
 - API rate limit compliance
 
-### 🔐 Security & Compliance
-
-**Access Control:**
-- **IAM Roles**: Proper service-to-service authentication
-- **VPC Configuration**: Network isolation and security groups
-- **Secrets Management**: AWS Secrets Manager for API keys
-
-**Compliance Features:**
-- **Robots.txt Caching**: Efficient robots.txt rule storage and retrieval
-- **Rate Limiting**: Per-domain rate limiting with backoff strategies
-- **Data Privacy**: GDPR compliance for user data handling
-
-### 🎯 Scalability Improvements
-
-**Horizontal Scaling:**
-- **Auto Scaling Groups**: Dynamic scaling based on queue depth
-- **Multi-Region Deployment**: Geographic distribution for global crawling
-- **Container Orchestration**: ECS or EKS for containerized services
-
-**Performance Optimization:**
-- **Connection Pooling**: Efficient database and HTTP connections
-- **Caching Layer**: Redis/ElastiCache for frequently accessed data
-- **Batch Processing**: Process multiple URLs in batches for efficiency
-
-This roadmap transforms the current single-process crawler into a distributed, cloud-native system capable of handling large-scale web crawling operations with proper monitoring, security, and compliance features.
+Thanks for reading!
