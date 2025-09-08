@@ -7,7 +7,8 @@ A production-ready web crawler that scrapes Modern Family episode data from Fand
 <img width="1054" height="667" alt="image" src="https://github.com/user-attachments/assets/7efd139d-4360-469c-b28c-482071870a98" />
 <br/>
 <img width="1025" height="631" alt="image" src="https://github.com/user-attachments/assets/837e3fed-0be9-4117-9c39-a450583b1d08" />
-
+<br/>
+<img width="988" height="363" alt="image" src="https://github.com/user-attachments/assets/c5ec44b6-ba7a-49c6-911b-2d9046444c7a" />
 
 ### 🔄 Concurrency Model
 
