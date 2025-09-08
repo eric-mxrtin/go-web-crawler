@@ -4,7 +4,7 @@ A production-ready web crawler that scrapes Modern Family episode data from Fand
 
 ## 🏗️ Architecture Overview
 
-This crawler uses a multi-layered architecture designed for scalability and maintainability:
+<img width="1054" height="667" alt="image" src="https://github.com/user-attachments/assets/7efd139d-4360-469c-b28c-482071870a98" />
 
 ### Core Components
 - **main.go**: Orchestrates the entire crawling process with Go concurrency patterns
