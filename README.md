@@ -5,7 +5,7 @@ A production-ready web crawler that scrapes Modern Family episode data from Fand
 ## 🏗️ Architecture Overview
 
 <img width="1054" height="667" alt="image" src="https://github.com/user-attachments/assets/7efd139d-4360-469c-b28c-482071870a98" />
-
+<br/>
 <img width="1025" height="631" alt="image" src="https://github.com/user-attachments/assets/837e3fed-0be9-4117-9c39-a450583b1d08" />
 
 
