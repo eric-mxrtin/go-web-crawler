@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -51,18 +52,17 @@ func loadEnv() {
 
 var httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 
-// save episodes to markdown file (unused but kept for potential export feature)
-func saveEpisodesToMarkdown(episodes []utils.EpisodeDoc, filename string) error {
-	var builder strings.Builder
-	builder.WriteString("# modern family episode summaries\n\n")
-
-	for _, ep := range episodes {
-		builder.WriteString(fmt.Sprintf("## [%s](%s)\n\n", ep.PageTitle, ep.URL))
-		builder.WriteString(ep.EpisodeContent)
-		builder.WriteString("\n\n---\n\n")
-	}
-
-	return os.WriteFile(filename, []byte(builder.String()), 0644)
+// crawl metrics for performance tracking
+type CrawlMetrics struct {
+	TotalProcessed      int64
+	SuccessfullyCrawled int64
+	FailedCrawls        int64
+	BlockedByRobots     int64
+	EmptyContent        int64
+	EmbeddingErrors     int64
+	MongoErrors         int64
+	StartTime           time.Time
+	EndTime             time.Time
 }
 
 // http request with exponential backoff retry logic
@@ -152,17 +152,21 @@ func textFromSelection(sel *goquery.Selection) string {
 
 // worker goroutine that processes episode urls from the job channel
 // fetches page content, generates embeddings, and stores in mongodb
-func worker(ctx context.Context, id int, env *utils.MongoEnv, robots *robotstxt.RobotsData, jobs <-chan string, wg *sync.WaitGroup) {
+func worker(ctx context.Context, id int, env *utils.MongoEnv, robots *robotstxt.RobotsData, jobs <-chan string, wg *sync.WaitGroup, metrics *CrawlMetrics) {
 	defer wg.Done()
 	for u := range jobs {
+		atomic.AddInt64(&metrics.TotalProcessed, 1)
+
 		if !isAllowed(robots, u) {
 			log.Printf("[worker %d] blocked by robots.txt: %s", id, u)
+			atomic.AddInt64(&metrics.BlockedByRobots, 1)
 			continue
 		}
 
 		title, summary, err := scraper.ExtractEpisodeData(ctx, u)
 		if err != nil {
 			log.Printf("[worker %d] extract error for %s: %v", id, u, err)
+			atomic.AddInt64(&metrics.FailedCrawls, 1)
 			continue
 		}
 
@@ -176,6 +180,7 @@ func worker(ctx context.Context, id int, env *utils.MongoEnv, robots *robotstxt.
 
 		if summary == "" {
 			log.Printf("[worker %d] skipping empty summary after cleaning for %s", id, u)
+			atomic.AddInt64(&metrics.EmptyContent, 1)
 			continue
 		}
 
@@ -185,6 +190,7 @@ func worker(ctx context.Context, id int, env *utils.MongoEnv, robots *robotstxt.
 		vec, err := utils.GetEmbedding(ctx, env.OpenAIAPIKey, summary)
 		if err != nil {
 			log.Printf("[worker %d] embedding error for %s: %v", id, u, err)
+			atomic.AddInt64(&metrics.EmbeddingErrors, 1)
 			// if it's a token limit error, we could implement chunking here
 			if strings.Contains(err.Error(), "token") || strings.Contains(err.Error(), "length") {
 				log.Printf("[worker %d] content too long for %s (length: %d), consider implementing chunking", id, u, len(summary))
@@ -201,8 +207,10 @@ func worker(ctx context.Context, id int, env *utils.MongoEnv, robots *robotstxt.
 		}
 		if err := utils.SaveEpisode(ctx, env, doc); err != nil {
 			log.Printf("[worker %d] mongo save error for %s: %v", id, u, err)
+			atomic.AddInt64(&metrics.MongoErrors, 1)
 			continue
 		}
+		atomic.AddInt64(&metrics.SuccessfullyCrawled, 1)
 		log.Printf("[worker %d] saved: %s", id, title)
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -219,6 +227,40 @@ func uniqueStrings(in []string) []string {
 		}
 	}
 	return out
+}
+
+// display crawl performance metrics
+func displayMetrics(metrics *CrawlMetrics) {
+	metrics.EndTime = time.Now()
+	duration := metrics.EndTime.Sub(metrics.StartTime)
+
+	fmt.Print("\n" + strings.Repeat("=", 60) + "\n")
+	fmt.Print("🕷️  CRAWL PERFORMANCE METRICS\n")
+	fmt.Print(strings.Repeat("=", 60) + "\n")
+
+	// timing information
+	fmt.Printf("⏱️  Total Duration: %v\n", duration.Round(time.Second))
+	fmt.Printf("🚀 Crawl Rate: %.2f sites/second\n", float64(metrics.SuccessfullyCrawled)/duration.Seconds())
+
+	// success metrics
+	fmt.Printf("\n📊 SUCCESS METRICS:\n")
+	fmt.Printf("✅ Successfully Crawled: %d\n", atomic.LoadInt64(&metrics.SuccessfullyCrawled))
+	fmt.Printf("📈 Success Rate: %.1f%%\n", float64(atomic.LoadInt64(&metrics.SuccessfullyCrawled))/float64(atomic.LoadInt64(&metrics.TotalProcessed))*100)
+
+	// error breakdown
+	fmt.Printf("\n❌ ERROR BREAKDOWN:\n")
+	fmt.Printf("🤖 Blocked by robots.txt: %d\n", atomic.LoadInt64(&metrics.BlockedByRobots))
+	fmt.Printf("💥 Failed Crawls: %d\n", atomic.LoadInt64(&metrics.FailedCrawls))
+	fmt.Printf("📄 Empty Content: %d\n", atomic.LoadInt64(&metrics.EmptyContent))
+	fmt.Printf("🧠 Embedding Errors: %d\n", atomic.LoadInt64(&metrics.EmbeddingErrors))
+	fmt.Printf("🗄️  MongoDB Errors: %d\n", atomic.LoadInt64(&metrics.MongoErrors))
+
+	// totals
+	fmt.Printf("\n📋 TOTALS:\n")
+	fmt.Printf("🔢 Total Processed: %d\n", atomic.LoadInt64(&metrics.TotalProcessed))
+	fmt.Printf("⏰ Average Time per Site: %v\n", duration/time.Duration(atomic.LoadInt64(&metrics.TotalProcessed)))
+
+	fmt.Print(strings.Repeat("=", 60) + "\n")
 }
 
 func main() {
@@ -283,6 +325,11 @@ func main() {
 		log.Fatal("no episode links found; check selector or page structure")
 	}
 
+	// initialize crawl metrics
+	metrics := &CrawlMetrics{
+		StartTime: time.Now(),
+	}
+
 	// set up worker pool with buffered channel
 	jobs := make(chan string, len(episodeLinks))
 	var wg sync.WaitGroup
@@ -296,7 +343,7 @@ func main() {
 	// start worker goroutines
 	for i := 0; i < workerCount; i++ {
 		wg.Add(1)
-		go worker(ctx, i+1, env, robots, jobs, &wg)
+		go worker(ctx, i+1, env, robots, jobs, &wg, metrics)
 	}
 
 	// send jobs to workers
@@ -308,4 +355,7 @@ func main() {
 	// wait for all workers to finish
 	wg.Wait()
 	log.Println("crawl completed.")
+
+	// display performance metrics
+	displayMetrics(metrics)
 }

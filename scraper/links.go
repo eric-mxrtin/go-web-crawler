@@ -43,7 +43,7 @@ func ExtractEpisodeLinks(ctx context.Context, seedURL string) ([]string, error) 
 		return nil, fmt.Errorf("invalid seed url: %w", err)
 	}
 
-	const maxTables = 6 // full is 12
+	const maxTables = 12 // full is 12
 	doc.Find(tableSelector).EachWithBreak(func(i int, table *goquery.Selection) bool {
 		if tableCount >= maxTables {
 			return false
