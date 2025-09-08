@@ -41,7 +41,6 @@ The crawler is currently targeted, meaning:
 ### 🤖 Robots.txt Compliance
 
 The crawler respects robots.txt rules by:
-- Fetching robots.txt from multiple sources
 - Checking each URL against robots.txt before crawling
 - Using a proper user-agent string
 - Implementing rate limiting between requests
@@ -52,7 +51,6 @@ Robust error handling with exponential backoff:
 - HTTP requests retry up to 3 times with increasing delays
 - OpenAI API calls handle token limits gracefully
 - MongoDB operations use upsert to handle duplicates
-- Comprehensive logging for debugging
 
 ### 🧠 Semantic Search with Vector Embeddings
 
