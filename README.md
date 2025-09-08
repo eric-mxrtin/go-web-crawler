@@ -52,19 +52,13 @@ Robust error handling with exponential backoff:
 - HTTP requests retry up to 3 times with increasing delays
 - OpenAI API calls handle token limits gracefully
 - MongoDB operations use upsert to handle duplicates
-
-### 🧠 Semantic Search with Vector Embeddings
-
-- Uses OpenAI's `text-embedding-3-large` model (3072 dimensions)
-- Stores embeddings in MongoDB with vector search index to support NLQ's
-
+- 
 ### 🔍 MongoDB Vector Search
 
 Uses MongoDB Atlas vector search for semantic similarity:
 - Creates vector search index with cosine similarity
 - Supports 3072-dimensional embeddings
 - Returns top 10 most relevant results
-- Displays results with color-coded scores and previews
 
 ## 🚀 Usage
 
