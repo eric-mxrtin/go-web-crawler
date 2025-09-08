@@ -6,11 +6,8 @@ A production-ready web crawler that scrapes Modern Family episode data from Fand
 
 <img width="1054" height="667" alt="image" src="https://github.com/user-attachments/assets/7efd139d-4360-469c-b28c-482071870a98" />
 
-### Core Components
-- **main.go**: Orchestrates the entire crawling process with Go concurrency patterns
-- **scraper/**: Handles web scraping and data extraction
-- **utils/**: Contains MongoDB operations and OpenAI embedding generation
-- **MongoDB**: Stores episode data with vector embeddings for semantic search
+<img width="1025" height="631" alt="image" src="https://github.com/user-attachments/assets/837e3fed-0be9-4117-9c39-a450583b1d08" />
+
 
 ### 🔄 Concurrency Model
 
@@ -34,15 +31,12 @@ Each worker goroutine:
 - Generates embeddings using OpenAI API
 - Stores data in MongoDB with upsert operations
 
-### 🔍 BFS-like Link Traversal
+### 🔍 Link Traversal
 
-The scraper uses a breadth-first search approach to discover episode links:
+The crawler is currently targeted, meaning:
 
-1. Starts from the pilot episode page
-2. Traverses episode tables in the wiki structure
-3. Extracts links using CSS selectors
-4. Resolves relative URLs to absolute URLs
-5. Limits traversal to prevent infinite loops
+1. All URls are extracted from a seed URL before crawling
+2. No link discovery during crawling
 
 ### 🤖 Robots.txt Compliance
 
@@ -62,11 +56,8 @@ Robust error handling with exponential backoff:
 
 ### 🧠 Semantic Search with Vector Embeddings
 
-The crawler generates high-quality embeddings for semantic search:
 - Uses OpenAI's `text-embedding-3-large` model (3072 dimensions)
-- Normalizes vectors using L2 normalization
-- Stores embeddings in MongoDB with vector search index
-- Supports natural language queries like "Jay's birthday" or "Phil's real estate"
+- Stores embeddings in MongoDB with vector search index to support NLQ's
 
 ### 🔍 MongoDB Vector Search
 
@@ -121,38 +112,12 @@ go run main.go -workers 10
 ### Semantic Search
 
 ```bash
-# Search for episodes about Jay's birthday
-go run main.go -search "jay's birthday"
+# Search for episodes where Phil gets hurt
+go run main.go -search "Phil get's hurt"
 
-# Search for episodes about Phil's real estate
-go run main.go -search "phil's real estate"
+# Search for episodes where the family is on vacation
+go run main.go -search "The Dunphy family is on vacation"
 ```
-
-## ⚡ Technical Features
-
-### Go Concurrency Patterns
-- Worker pool with buffered channels
-- WaitGroups for goroutine synchronization
-- Context-based cancellation and timeouts
-- Channel-based job distribution
-
-### Web Scraping
-- GoQuery for HTML parsing
-- Robots.txt compliance checking
-- User-agent spoofing
-- Rate limiting and retry logic
-
-### Vector Search
-- OpenAI embedding generation
-- L2 vector normalization
-- MongoDB Atlas vector search
-- Cosine similarity scoring
-
-### Error Handling
-- Exponential backoff retry
-- Graceful degradation
-- Comprehensive logging
-- Resource cleanup
 
 ## 📁 Project Structure
 
@@ -170,7 +135,7 @@ go run main.go -search "phil's real estate"
 
 ## 🚀 Next Steps: AWS & System Design
 
-Based on the system architecture diagram, here are my planned improvements to scale this crawler:
+To convert this crawler from a targeted crawler to a performant web crawler (for a much larger set of URLs), I would implement these changes:
 
 ### 🏗️ AWS Infrastructure Migration
 
